@@ -7,9 +7,10 @@ findings by severity.
 from __future__ import annotations
 
 from .model import (
+    CONFIRMED_HOMEKIT_DOMAINS,
     DEAD_STATES,
     GROUP_HELPER_PLATFORMS,
-    NATIVE_HOMEKIT_DOMAINS,
+    HOMEKIT_CAPABLE_DOMAINS,
     EntityView,
     Finding,
     Snapshot,
@@ -114,49 +115,109 @@ def detect_stale_allocations(snapshot: Snapshot) -> list[Finding]:
 
 
 def detect_round_trips(snapshot: Snapshot) -> list[Finding]:
-    """Devices imported from a native-HomeKit source and then re-exported.
+    """Devices already on HomeKit, re-exported through a bridge.
 
-    The device is already on HomeKit under its own identity; pushing it back out
-    through a bridge gives Home.app a second copy that shadows the real one.
+    Split by what Home Assistant can actually prove:
+
+    ``homekit_controller``
+        Provable. The integration exists only because the accessory was paired
+        over HAP, so re-exporting it is definitionally a second copy.
+
+    HomeKit-capable brands (hue, lifx, nanoleaf, ecobee, netatmo)
+        An inference. The brand ships HomeKit support, but nothing inside Home
+        Assistant can see whether this user paired this bridge in Home.app. If
+        they never did, the device is not on HomeKit twice and the finding is
+        wrong. Reported as a question, and dismissible per integration.
     """
-    offenders: list[EntityView] = []
+    confirmed: list[EntityView] = []
+    likely: list[EntityView] = []
+    dismissed: set[str] = set()
 
     for ent in snapshot.entities:
         live = ent.live_publications
         if not live:
             continue
-        if ent.source_domain not in NATIVE_HOMEKIT_DOMAINS:
-            continue
-        ent.flags.append("round_trip")
-        label = ent.source_title or ent.source_domain
-        ent.notes.append(
-            f"Already on HomeKit natively via {label}; re-exported by "
-            + ", ".join(p.bridge_title for p in live)
+
+        source = (ent.source_domain or "").lower()
+        label = ent.source_title or ent.source_domain or source
+        bridges = ", ".join(p.bridge_title for p in live)
+
+        if source in CONFIRMED_HOMEKIT_DOMAINS:
+            ent.flags.append("round_trip")
+            ent.notes.append(
+                f"Paired over HAP via {label}, then re-exported by {bridges}. "
+                "Home.app shows this device twice."
+            )
+            confirmed.append(ent)
+        elif source in HOMEKIT_CAPABLE_DOMAINS:
+            if source in snapshot.assume_not_in_homekit:
+                dismissed.add(source)
+                continue
+            ent.flags.append("round_trip_likely")
+            ent.notes.append(
+                f"{label} ships HomeKit support. If that bridge is paired in "
+                f"Home.app, {bridges} publishes a second copy of this device. "
+                "If it is not paired, this row is fine."
+            )
+            likely.append(ent)
+
+    findings: list[Finding] = []
+
+    if confirmed:
+        by_source = sorted({e.source_domain or "?" for e in confirmed})
+        findings.append(
+            Finding(
+                severity="critical",
+                code="round_trip",
+                title=plural(len(confirmed), "accessory", "accessories")
+                + " imported from HomeKit, then sent back",
+                detail=(
+                    "These are paired over HAP (" + ", ".join(by_source) + "), so "
+                    "Home Assistant knows they are already on HomeKit. Re-exporting "
+                    "them through a bridge means Home.app shows each device twice — "
+                    "once natively, once as a Home Assistant accessory."
+                ),
+                entities=sorted(e.entity_id for e in confirmed),
+            )
         )
-        offenders.append(ent)
 
-    if not offenders:
-        return []
-
-    by_source: dict[str, list[str]] = {}
-    for ent in offenders:
-        by_source.setdefault(ent.source_domain or "?", []).append(ent.entity_id)
-
-    return [
-        Finding(
-            severity="critical",
-            code="round_trip",
-            title=plural(len(offenders), "accessory", "accessories")
-            + " imported from HomeKit, then sent back",
-            detail=(
-                "These entities come from integrations that already put the device "
-                "on HomeKit (" + ", ".join(sorted(by_source)) + "). Re-exporting them "
-                "through a bridge means Home.app shows each device twice — once "
-                "natively, once as a Home Assistant accessory."
-            ),
-            entities=sorted(e.entity_id for e in offenders),
+    if likely:
+        by_source = sorted({e.source_domain or "?" for e in likely})
+        findings.append(
+            Finding(
+                severity="warning",
+                code="round_trip_likely",
+                title=plural(len(likely), "accessory", "accessories")
+                + " may already be on HomeKit natively",
+                detail=(
+                    "These come from integrations that ship HomeKit support ("
+                    + ", ".join(by_source)
+                    + "). Home Assistant cannot see inside Home.app, so this is a "
+                    "question, not a verdict: if you paired that bridge with Apple "
+                    "Home, each device is showing up twice. If you did not, these "
+                    "are fine — list the integration under assume_not_in_homekit "
+                    "in the add-on options to stop asking."
+                ),
+                entities=sorted(e.entity_id for e in likely),
+            )
         )
-    ]
+
+    if dismissed:
+        findings.append(
+            Finding(
+                severity="info",
+                code="round_trip_dismissed",
+                title="Round-trip checks skipped for "
+                + ", ".join(sorted(dismissed)),
+                detail=(
+                    "You have told the add-on these integrations are not paired in "
+                    "Home.app, so their entities are not flagged as round-trips. "
+                    "Remove them from assume_not_in_homekit to check again."
+                ),
+            )
+        )
+
+    return findings
 
 
 def detect_group_helpers(snapshot: Snapshot) -> list[Finding]:

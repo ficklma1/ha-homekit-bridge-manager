@@ -1,5 +1,5 @@
 name: HomeKit Bridge Manager
-version: "1.0.1"
+version: "1.1.0"
 slug: homekit_bridge_manager
 description: >-
   One view across every HomeKit bridge. Finds duplicate accessories, round-trip
@@ -29,6 +29,11 @@ panel_title: HomeKit Bridges
 options:
   refresh_seconds: 300
   log_level: info
+  # Integrations you have NOT paired with Apple Home. Listing one here stops the
+  # add-on asking whether its devices are duplicated on HomeKit.
+  assume_not_in_homekit: []
 schema:
   refresh_seconds: int(60,86400)
   log_level: list(trace|debug|info|warning|error|fatal)
+  assume_not_in_homekit:
+    - str

@@ -17,12 +17,20 @@ from .storage import AidFile, HomeKitEntry, system_unique_id
 
 _LOGGER = logging.getLogger(__name__)
 
-# Integrations that put a device on HomeKit natively, before Home Assistant ever
-# sees it. Re-exporting one of these through a HomeKit bridge is what makes a
-# device show up twice in Home.app.
-NATIVE_HOMEKIT_DOMAINS: frozenset[str] = frozenset(
+# Round-trip detection comes in two confidences, and conflating them is how you
+# tell a stranger their lights are duplicated when they are not.
+#
+# CONFIRMED: the integration only exists because the accessory was paired over
+# HAP. Home Assistant knows this for a fact. Re-exporting is definitionally a
+# round trip.
+CONFIRMED_HOMEKIT_DOMAINS: frozenset[str] = frozenset({"homekit_controller"})
+
+# LIKELY: the brand ships HomeKit support, but whether THIS user paired THIS
+# bridge in Home.app is unknowable from inside Home Assistant. Treat as a
+# question, not a finding, and let the user overrule it per integration via the
+# assume_not_in_homekit option.
+HOMEKIT_CAPABLE_DOMAINS: frozenset[str] = frozenset(
     {
-        "homekit_controller",  # anything already paired over HAP
         "hue",
         "lifx",
         "nanoleaf",
@@ -30,6 +38,8 @@ NATIVE_HOMEKIT_DOMAINS: frozenset[str] = frozenset(
         "netatmo",
     }
 )
+
+NATIVE_HOMEKIT_DOMAINS: frozenset[str] = CONFIRMED_HOMEKIT_DOMAINS | HOMEKIT_CAPABLE_DOMAINS
 
 # Helper integrations whose entities wrap other entities. Publishing one of these
 # alongside its own members gives you a phantom accessory in Home.app.
@@ -112,9 +122,10 @@ class EntityView:
             "stale": 1,
             "orphan": 2,
             "round_trip": 3,
-            "group": 4,
-            "diagnostic": 5,
-            "dead": 6,
+            "round_trip_likely": 4,
+            "group": 5,
+            "diagnostic": 6,
+            "dead": 7,
         }
         return min((order.get(f, 9) for f in self.flags), default=9)
 
@@ -165,6 +176,17 @@ class Snapshot:
     findings: list[Finding] = field(default_factory=list)
     generated_at: str = ""
     warnings: list[str] = field(default_factory=list)
+    # "live" — read from this Home Assistant.
+    # "synthetic" — invented by tools/dev_server.py. Never let this be mistaken
+    # for real data; people reason about entity ids they are shown.
+    source: str = "live"
+    # Integrations the user says are not in Home.app; suppresses "likely"
+    # round-trip findings for them.
+    assume_not_in_homekit: frozenset[str] = frozenset()
+
+    @property
+    def is_synthetic(self) -> bool:
+        return self.source == "synthetic"
 
 
 def _aid_key_index(registries: Registries) -> dict[str, str]:

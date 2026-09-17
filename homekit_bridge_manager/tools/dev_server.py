@@ -216,6 +216,10 @@ def main() -> None:
     world = build_world()
     write_storage(world, storage)
     print(f"Synthetic instance: {len(world.entities)} entities -> {storage}")
+    print(
+        "WARNING: every entity id below is fabricated. Do not reason about your "
+        "own Home Assistant from this data."
+    )
 
     async def fake_fetch(self, timeout: float = 30.0) -> Registries:  # noqa: ANN001
         return world
@@ -229,6 +233,9 @@ def main() -> None:
         refresh_seconds=86400,
         port=args.port,
         log_level="INFO",
+        # Everything this harness serves is invented. Say so, loudly, all the
+        # way through to the browser.
+        synthetic=True,
     )
 
     if args.dump:

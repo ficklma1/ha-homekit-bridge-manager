@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.1.0
+
+Two honesty fixes. Neither changes what the add-on can see; both change how
+confidently it speaks.
+
+- **Round-trip detection is split by confidence.** `homekit_controller` devices
+  are paired over HAP as a matter of record, so those stay `critical` and now
+  say why. The HomeKit-capable brands — hue, lifx, nanoleaf, ecobee, netatmo —
+  were being asserted as fact on the strength of a hardcoded brand list, which
+  told users their lights were duplicated when they may never have paired that
+  bridge with Apple Home. Those are now a `warning` phrased as a question.
+- **New `assume_not_in_homekit` option.** Name the integrations you have not
+  paired with Apple Home and their "likely" findings stop. Confirmed
+  round-trips are never suppressed by it.
+- **Synthetic data announces itself.** `tools/dev_server.py` stamps the
+  snapshot `source: synthetic`; the UI renders a banner and marks the subtitle.
+  Fixture entity ids were previously indistinguishable from live ones, which is
+  a good way to spend an afternoon debugging a house that does not exist.
+
 ## 1.0.1
 
 Fixes a crash that made every scan fail with

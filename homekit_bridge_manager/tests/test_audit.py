@@ -248,20 +248,54 @@ def test_finds_the_cross_bridge_duplicate(snapshot):
     assert "duplicate_publication" in _codes(snapshot)
 
 
-def test_finds_round_trips_from_homekit_controller(snapshot):
+def test_confirmed_round_trips_are_hap_paired_only(snapshot):
+    """Only homekit_controller earns the critical finding.
+
+    Its entities are on HomeKit as a matter of record — the integration cannot
+    exist otherwise. Hue is a separate, weaker claim (see below).
+    """
     finding = next(f for f in snapshot.findings if f.code == "round_trip")
-    # Both HomeKit Controller imports, plus the Hue light — Hue puts the bulb on
-    # HomeKit itself, so re-exporting it is the same round trip.
+    assert finding.severity == "critical"
     assert set(finding.entities) == {
         "cover.msg100_5218_garage_door",
         "media_player.westinghouse_ce05x_6b6d",
-        "light.hue_color_downlight_1",
     }
+    assert "light.hue_color_downlight_1" not in finding.entities
 
 
-def test_hue_light_is_a_round_trip_too(snapshot):
+def test_hue_light_is_only_a_likely_round_trip(snapshot):
+    """Hue ships HomeKit support, but HA cannot see whether it is paired.
+
+    The old code asserted this as fact and told users their lights were
+    duplicated when the Hue bridge might never have been added to Home.app.
+    """
     hue = next(e for e in snapshot.entities if e.entity_id == "light.hue_color_downlight_1")
-    assert "round_trip" in hue.flags
+    assert hue.flags == ["round_trip_likely"]
+
+    finding = next(f for f in snapshot.findings if f.code == "round_trip_likely")
+    assert finding.severity == "warning"
+    assert "light.hue_color_downlight_1" in finding.entities
+    assert "may already be on HomeKit" in finding.title
+
+
+def test_likely_round_trips_can_be_dismissed_per_integration(registries, storage_dir):
+    """assume_not_in_homekit overrules the inference for a named integration."""
+    from app import detectors, model
+    from app.storage import read_aid_files, read_config_entries
+
+    snap = model.build(
+        read_config_entries(storage_dir), read_aid_files(storage_dir), registries
+    )
+    snap.assume_not_in_homekit = frozenset({"hue"})
+    snap = detectors.run(snap)
+
+    hue = next(e for e in snap.entities if e.entity_id == "light.hue_color_downlight_1")
+    assert hue.flags == []
+    assert "round_trip_likely" not in _codes(snap)
+    # Still confirmed for HAP-paired devices — dismissing Hue does not mute those.
+    assert "round_trip" in _codes(snap)
+    dismissed = next(f for f in snap.findings if f.code == "round_trip_dismissed")
+    assert "hue" in dismissed.title
 
 
 def test_group_helper_is_flagged(snapshot):

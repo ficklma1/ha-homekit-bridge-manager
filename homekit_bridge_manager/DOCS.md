@@ -29,7 +29,8 @@ them with the live registries, and tells you what is actually going on.
 | Detector | What it catches |
 |---|---|
 | **Duplicate publication** | One entity published by two or more bridges — confirmed when both hold a live accessory id |
-| **Round trip** | A device imported from a native-HomeKit integration and re-exported through a bridge |
+| **Round trip (confirmed)** | A `homekit_controller` device — paired over HAP as a matter of record — re-exported through a bridge |
+| **Round trip (likely)** | A device from a HomeKit-capable brand (hue, lifx, nanoleaf, ecobee, netatmo). Whether you paired it with Apple Home is invisible to Home Assistant, so this is raised as a question and can be dismissed per integration |
 | **Stale allocation** | An accessory id still on disk for an entity the bridge's *current* filter would reject |
 | **Orphaned aid** | An allocation whose entity no longer exists at all, still holding a slot |
 | **Capacity** | Bridges past 60% / 85% of the 150 ceiling, flagged as growing if the filter is open-ended |
@@ -86,7 +87,27 @@ fail.
 2. Add this repository's URL
 3. Install **HomeKit Bridge Manager**, start it, open it from the sidebar
 
-Options: `refresh_seconds` (default 300) and `log_level`.
+### Options
+
+| Option | Default | What it does |
+|---|---|---|
+| `refresh_seconds` | `300` | How often to re-scan |
+| `log_level` | `info` | Add-on log verbosity |
+| `assume_not_in_homekit` | `[]` | Integrations you have **not** paired with Apple Home |
+
+`assume_not_in_homekit` exists because "likely" round-trips are an inference.
+The add-on can see that you run the Hue integration; it cannot see whether your
+Hue bridge is in the Home app. If it isn't, list the integration and those
+findings stop:
+
+```yaml
+assume_not_in_homekit:
+  - hue
+  - lifx
+```
+
+Confirmed round-trips (`homekit_controller`) are never suppressed by this — they
+are provable from Home Assistant's own data.
 
 ## Development
 
@@ -94,7 +115,7 @@ Options: `refresh_seconds` (default 300) and `log_level`.
 cd homekit_bridge_manager
 pip install -r requirements.txt pytest
 
-pytest tests/ -q                       # 21 tests, no network needed
+pytest tests/ -q                       # 32 tests, no network needed
 python3 tools/dev_server.py            # synthetic 450-entity instance on :8099
 python3 tools/dev_server.py --dump s.json
 ```
@@ -103,6 +124,12 @@ python3 tools/dev_server.py --dump s.json
 a large multi-ecosystem install (14 integrations, 15 HomeKit entries, deliberate
 duplicates, stale allocations and orphans), then serves the real app against it.
 No Home Assistant required.
+
+**Everything it serves is invented.** Entity ids like
+`binary_sensor.kidde_binary_sensor_24` are generated from a global per-domain
+counter and describe nobody's house. The harness stamps the snapshot
+`source: synthetic`, the UI renders a banner saying so, and the subtitle reads
+`SYNTHETIC DATA`. Do not read your own setup out of a dev-server screenshot.
 
 The core — `entityfilter`, `storage`, `model`, `detectors` — has no third-party
 imports, so it is testable without a network stack. `hass.py` is the only module

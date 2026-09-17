@@ -21,6 +21,7 @@
     </div>
   </header>
 
+  <div id="provenance" class="provenance" hidden></div>
   <div id="error" class="error" hidden></div>
   <div id="warnings" class="warnings" hidden></div>
 
@@ -53,7 +54,8 @@
       <select id="flag">
         <option value="">All rows</option>
         <option value="duplicate">Duplicates</option>
-        <option value="round_trip">Round-trips</option>
+        <option value="round_trip">Round-trips (confirmed)</option>
+        <option value="round_trip_likely">Round-trips (likely)</option>
         <option value="stale">Stale allocations</option>
         <option value="group">Group helpers</option>
         <option value="diagnostic">Diagnostic leaks</option>

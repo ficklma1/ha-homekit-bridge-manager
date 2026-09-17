@@ -15,6 +15,13 @@ class Config:
     refresh_seconds: int
     port: int
     log_level: str
+    # Integrations the user has told us are NOT paired in Home.app. Round-trip
+    # detection for a HomeKit-capable brand is an inference, not a fact, so the
+    # user gets to overrule it.
+    assume_not_in_homekit: frozenset[str] = frozenset()
+    # True only for the dev harness. Stamped onto the snapshot so the UI can
+    # say out loud that it is showing invented data.
+    synthetic: bool = False
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -27,4 +34,14 @@ class Config:
             refresh_seconds=int(os.environ.get("REFRESH_SECONDS", "300")),
             port=int(os.environ.get("PORT", "8099")),
             log_level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+            assume_not_in_homekit=_domain_set(
+                os.environ.get("ASSUME_NOT_IN_HOMEKIT", "")
+            ),
         )
+
+
+def _domain_set(raw: str) -> frozenset[str]:
+    """Parse a comma- or space-separated integration list from the add-on options."""
+    return frozenset(
+        part.strip().lower() for part in raw.replace(",", " ").split() if part.strip()
+    )

@@ -50,7 +50,13 @@ class AuditService:
             client = HassWebSocket(config.hass_url, config.supervisor_token)
             registries = await client.fetch_registries()
 
-            snapshot = detectors.run(model.build(entries, aid_files, registries))
+            snapshot = model.build(entries, aid_files, registries)
+            # Carried into the detectors so "likely" round-trips can be
+            # dismissed, and into the UI so nobody mistakes the dev harness's
+            # invented entity ids for their own.
+            snapshot.source = "synthetic" if config.synthetic else "live"
+            snapshot.assume_not_in_homekit = config.assume_not_in_homekit
+            snapshot = detectors.run(snapshot)
             snapshot.generated_at = datetime.now(timezone.utc).isoformat(
                 timespec="seconds"
             )
@@ -123,6 +129,8 @@ def to_json(snapshot: model.Snapshot | None, error: str | None) -> dict:
     return {
         "ok": True,
         "generated_at": snapshot.generated_at,
+        "source": snapshot.source,
+        "assume_not_in_homekit": sorted(snapshot.assume_not_in_homekit),
         "warnings": snapshot.warnings,
         "bridges": [
             {
