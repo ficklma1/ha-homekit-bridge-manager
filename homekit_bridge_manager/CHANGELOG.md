@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.1
+
+Fixes a crash that made every scan fail with
+`RuntimeError: Concurrent call to receive() is not allowed`.
+
+- The registry fetch gathered five websocket commands onto a single
+  connection. aiohttp allows only one reader per socket, so the add-on
+  started cleanly and then failed on first scan. Commands are now issued in
+  sequence.
+- Added `tests/test_hass.py`, which drives the fetch against a websocket
+  stub that refuses overlapping reads — the 1.0.0 code fails it.
+
 ## 1.0.0
 
 First release. Read-only audit — the add-on never writes to Home Assistant.

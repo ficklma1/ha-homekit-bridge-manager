@@ -1,5 +1,5 @@
 name: HomeKit Bridge Manager
-version: "1.0.0"
+version: "1.0.1"
 slug: homekit_bridge_manager
 description: >-
   One view across every HomeKit bridge. Finds duplicate accessories, round-trip

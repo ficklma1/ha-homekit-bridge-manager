@@ -7,7 +7,6 @@ goes into the add-on's config.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
@@ -32,14 +31,25 @@ class HassWebSocket:
         ) as session:
             async with session.ws_connect(self._url, heartbeat=15) as ws:
                 await self._authenticate(ws)
-                entities, devices, areas, entries, states = await asyncio.gather(
-                    self._command(ws, "config/entity_registry/list"),
-                    self._command(ws, "config/device_registry/list"),
-                    self._command(ws, "config/area_registry/list"),
-                    self._command(ws, "config_entries/get"),
-                    self._command(ws, "get_states"),
-                )
-        return _build_registries(entities, devices, areas, entries, states)
+                fetched = await self._fetch_all(ws)
+        return _build_registries(*fetched)
+
+    async def _fetch_all(
+        self, ws: aiohttp.ClientWebSocketResponse
+    ) -> tuple[list[dict], list[dict], list[dict], list[dict], list[dict]]:
+        """Issue every registry command on one socket, strictly in sequence.
+
+        One connection means one reader. aiohttp raises "Concurrent call to
+        receive() is not allowed" if two coroutines await the same websocket,
+        so these must not be gathered. Five round trips against a local socket
+        costs nothing worth reclaiming.
+        """
+        entities = await self._command(ws, "config/entity_registry/list")
+        devices = await self._command(ws, "config/device_registry/list")
+        areas = await self._command(ws, "config/area_registry/list")
+        entries = await self._command(ws, "config_entries/get")
+        states = await self._command(ws, "get_states")
+        return entities, devices, areas, entries, states
 
     async def _authenticate(self, ws: aiohttp.ClientWebSocketResponse) -> None:
         hello = await ws.receive_json()
