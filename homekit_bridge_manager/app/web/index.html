@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HomeKit Bridge Manager</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='14' font-size='14'%3E%F0%9F%8C%89%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="static/app.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <h1>HomeKit Bridge Manager</h1>
+      <p class="sub" id="subtitle">Loading…</p>
+    </div>
+    <div class="hdr-actions">
+      <button class="btn" id="refresh">Re-scan</button>
+      <button class="btn" id="theme">Light / dark</button>
+    </div>
+  </header>
+
+  <div id="error" class="error" hidden></div>
+  <div id="warnings" class="warnings" hidden></div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <section>
+    <h2>Audit</h2>
+    <p class="h2sub" id="auditSub">No findings yet.</p>
+    <div id="findings"></div>
+  </section>
+
+  <section>
+    <h2>Bridge capacity</h2>
+    <p class="h2sub">HomeKit caps a bridge at 150 accessories. Counts read from each
+      bridge's <code>.aids</code> file are exact; anything predicted from a filter is marked.</p>
+    <div class="meters" id="meters"></div>
+    <div class="legend">
+      <span><i class="sw-ok"></i> under 60%</span>
+      <span><i class="sw-warn"></i> 60–85% — plan a split</span>
+      <span><i class="sw-crit"></i> over 85% — split now</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Master exposure view</h2>
+    <p class="h2sub">Every entity HomeKit publishes, and every bridge publishing it.</p>
+    <div class="toolbar">
+      <input id="q" type="search" placeholder="Filter entities…">
+      <select id="dom"><option value="">All domains</option></select>
+      <select id="flag">
+        <option value="">All rows</option>
+        <option value="duplicate">Duplicates</option>
+        <option value="round_trip">Round-trips</option>
+        <option value="stale">Stale allocations</option>
+        <option value="group">Group helpers</option>
+        <option value="diagnostic">Diagnostic leaks</option>
+        <option value="dead">Unavailable</option>
+        <option value="clean">Clean</option>
+      </select>
+      <span class="pill" id="count"></span>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr>
+          <th>Entity</th>
+          <th class="hide-sm">Published on</th>
+          <th class="hide-sm">Source</th>
+          <th>Status</th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    Read-only. This add-on never writes to Home Assistant or to your
+    <code>.storage</code> directory — it maps the config folder <code>:ro</code>.
+    Change plans arrive in v1.1.
+  </footer>
+
+</div>
+<script src="static/app.js"></script>
+</body>
+</html>

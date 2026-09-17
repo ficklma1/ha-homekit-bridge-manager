@@ -1,0 +1,258 @@
+"use strict";
+
+const FLAG_LABEL = {
+  duplicate: "Duplicate",
+  round_trip: "Round-trip",
+  stale: "Stale",
+  group: "Group helper",
+  diagnostic: "Diagnostic",
+  dead: "Unavailable",
+};
+const SEVERITY_COLOR = {
+  critical: "var(--critical)",
+  warning: "var(--serious)",
+  info: "var(--seq-450)",
+};
+
+let DATA = null;
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) =>
+  String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+  );
+
+async function load(force) {
+  const btn = $("refresh");
+  btn.disabled = true;
+  btn.textContent = force ? "Scanning…" : "Loading…";
+  try {
+    const res = await fetch(force ? "api/refresh" : "api/snapshot", {
+      method: force ? "POST" : "GET",
+    });
+    DATA = await res.json();
+    render();
+  } catch (err) {
+    showError(`Could not reach the add-on: ${err}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Re-scan";
+  }
+}
+
+function showError(message) {
+  const el = $("error");
+  el.hidden = false;
+  el.textContent = message;
+}
+
+function render() {
+  if (!DATA || !DATA.ok) {
+    showError(DATA?.error || "No audit data.");
+    $("subtitle").textContent = "Audit unavailable";
+    return;
+  }
+  $("error").hidden = true;
+
+  const when = DATA.generated_at
+    ? new Date(DATA.generated_at).toLocaleString()
+    : "unknown";
+  $("subtitle").textContent =
+    `${DATA.totals.entries} HomeKit entries · last scanned ${when}`;
+
+  renderWarnings();
+  renderKpis();
+  renderFindings();
+  renderMeters();
+  populateDomains();
+  renderTable();
+}
+
+function renderWarnings() {
+  const el = $("warnings");
+  if (!DATA.warnings?.length) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  el.innerHTML =
+    "<strong>Partial data</strong><ul>" +
+    DATA.warnings.map((w) => `<li>${esc(w)}</li>`).join("") +
+    "</ul>";
+}
+
+function renderKpis() {
+  const t = DATA.totals;
+  const tiles = [
+    { label: "HomeKit entries", val: t.entries, note: `${t.bridges} bridges` },
+    { label: "Accessories", val: t.accessories_total, note: "across all entries" },
+    {
+      label: "Findings",
+      val: t.critical + t.warning + t.info,
+      note: `${t.critical} critical · ${t.warning} warning · ${t.info} info`,
+      color: t.critical ? "var(--critical)" : undefined,
+    },
+    {
+      label: "Published entities",
+      val: DATA.entities.length,
+      note: "unique across bridges",
+    },
+  ];
+  $("kpis").innerHTML = tiles
+    .map(
+      (k) => `<div class="kpi">
+        <div class="label">${esc(k.label)}</div>
+        <div class="val"${k.color ? ` style="color:${k.color}"` : ""}>${k.val}</div>
+        <div class="note">${esc(k.note)}</div>
+      </div>`
+    )
+    .join("");
+}
+
+function renderFindings() {
+  const list = DATA.findings;
+  $("auditSub").textContent = list.length
+    ? `${list.length} finding${list.length === 1 ? "" : "s"}, worst first.`
+    : "Nothing to flag — no duplicates, round-trips or capacity risks.";
+
+  $("findings").innerHTML = list.length
+    ? list
+        .map((f) => {
+          const sample = f.entities.slice(0, 6);
+          const more = f.entities.length - sample.length;
+          return `<div class="finding">
+            <div class="dot" style="background:${SEVERITY_COLOR[f.severity]}"></div>
+            <div>
+              <div class="ttl">${esc(f.title)}
+                <span class="sev sev-${f.severity}">${f.severity}</span></div>
+              <div class="desc">${esc(f.detail)}</div>
+              ${
+                sample.length
+                  ? `<div class="ents">${sample.map(esc).join(" · ")}${
+                      more > 0 ? ` · +${more} more` : ""
+                    }</div>`
+                  : ""
+              }
+            </div>
+          </div>`;
+        })
+        .join("")
+    : '<div class="empty">Clean.</div>';
+}
+
+function renderMeters() {
+  $("meters").innerHTML = DATA.bridges
+    .map((b) => {
+      if (!b.capacity) {
+        return `<div class="meter">
+          <div class="top">
+            <div class="name">${esc(b.title)}<span class="mode">accessory mode</span></div>
+            <div class="num">1 accessory</div>
+          </div>
+          <div class="track"><div class="fill" style="width:4%"></div></div>
+          <div class="cap">Unbridged — the 150 limit does not apply.</div>
+        </div>`;
+      }
+      const pct = Math.min(100, (b.accessory_count / b.capacity) * 100);
+      const cls = pct > 85 ? "crit" : pct > 60 ? "warn" : "";
+      const notes = [
+        b.count_is_exact ? "read from .aids" : "predicted from filter",
+        b.open_ended ? "open-ended filter — grows on its own" : "fixed list",
+      ];
+      if (b.unresolved_aids) notes.push(`${b.unresolved_aids} orphaned aid(s)`);
+      return `<div class="meter">
+        <div class="top">
+          <div class="name">${esc(b.title)}<span class="mode">${esc(b.filter_summary)}</span></div>
+          <div class="num">${b.accessory_count} / ${b.capacity}</div>
+        </div>
+        <div class="track"><div class="fill ${cls}" style="width:${pct}%"></div></div>
+        <div class="cap">${esc(notes.join(" · "))}</div>
+      </div>`;
+    })
+    .join("");
+}
+
+function populateDomains() {
+  const sel = $("dom");
+  if (sel.dataset.filled) return;
+  const domains = [...new Set(DATA.entities.map((e) => e.domain))].sort();
+  sel.insertAdjacentHTML(
+    "beforeend",
+    domains.map((d) => `<option>${esc(d)}</option>`).join("")
+  );
+  sel.dataset.filled = "1";
+}
+
+function visibleRows() {
+  const q = $("q").value.trim().toLowerCase();
+  const dom = $("dom").value;
+  const flag = $("flag").value;
+  return DATA.entities.filter((e) => {
+    if (q && !(e.entity_id + " " + (e.name || "")).toLowerCase().includes(q))
+      return false;
+    if (dom && e.domain !== dom) return false;
+    if (flag === "clean" && e.flags.length) return false;
+    if (flag && flag !== "clean" && !e.flags.includes(flag)) return false;
+    return true;
+  });
+}
+
+function renderTable() {
+  const rows = visibleRows();
+  $("count").textContent = `${rows.length} of ${DATA.entities.length} entities`;
+
+  $("rows").innerHTML = rows.length
+    ? rows
+        .map((e) => {
+          const pubs = e.publications
+            .map(
+              (p) =>
+                `<span class="badge${p.stale ? " stale" : ""}">
+                   <span class="bd"></span>${esc(p.bridge)}${
+                     p.aid ? ` <span style="color:var(--muted)">#${p.aid}</span>` : ""
+                   }${p.stale ? " (stale)" : ""}</span>`
+            )
+            .join("");
+          const source = e.source_domain
+            ? `<span class="badge native"><span class="bd"></span>${esc(
+                e.source_title || e.source_domain
+              )}</span>`
+            : '<span style="color:var(--muted)">—</span>';
+          const flags = e.flags.length
+            ? e.flags
+                .map(
+                  (f) =>
+                    `<span class="flag flag-${f}">${esc(FLAG_LABEL[f] || f)}</span>`
+                )
+                .join("")
+            : '<span class="flag flag-clean">Clean</span>';
+          return `<tr>
+            <td class="ent">${esc(e.entity_id)}
+              <div class="area">${esc(e.area || "—")}${
+                e.state ? ` · ${esc(e.state)}` : ""
+              }</div>
+              ${e.notes.length ? `<div class="note">${esc(e.notes[0])}</div>` : ""}
+            </td>
+            <td class="hide-sm">${pubs}</td>
+            <td class="hide-sm">${source}</td>
+            <td>${flags}</td>
+          </tr>`;
+        })
+        .join("")
+    : '<tr><td colspan="4" class="empty">No entities match.</td></tr>';
+}
+
+$("refresh").addEventListener("click", () => load(true));
+$("theme").addEventListener("click", () => {
+  const root = document.documentElement;
+  const dark =
+    root.dataset.theme === "dark" ||
+    (!root.dataset.theme &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches);
+  root.dataset.theme = dark ? "light" : "dark";
+});
+["q", "dom", "flag"].forEach((id) =>
+  $(id).addEventListener("input", () => DATA?.ok && renderTable())
+);
+
+load(false);
